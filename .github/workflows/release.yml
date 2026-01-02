@@ -1,0 +1,73 @@
+name: Build & Release (zip)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stage addon files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf dist
+          mkdir -p dist/Attune
+
+          cp -r Images Libs Locales dist/Attune/
+          cp Attune.lua Attune.toc embeds.xml dist/Attune/
+
+      - name: Create zip
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd dist
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            zip -r "Attune-${GITHUB_REF_NAME}.zip" Attune
+          else
+            zip -r "Attune-nightly.zip" Attune
+          fi
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            ASSET="dist/Attune-${TAG}.zip"
+
+            if gh release view "${TAG}" >/dev/null 2>&1; then
+              gh release upload "${TAG}" "${ASSET}" --clobber
+            else
+              gh release create "${TAG}" "${ASSET}" --generate-notes
+            fi
+          else
+            TAG="nightly"
+            ASSET="dist/Attune-nightly.zip"
+            NOTES="Automated build from ${GITHUB_SHA}"
+
+            if gh release view "${TAG}" >/dev/null 2>&1; then
+              gh release edit "${TAG}" --prerelease --target "${GITHUB_SHA}" --notes "${NOTES}" --title "Nightly"
+              gh release upload "${TAG}" "${ASSET}" --clobber
+            else
+              gh release create "${TAG}" "${ASSET}" --prerelease --target "${GITHUB_SHA}" --notes "${NOTES}" --title "Nightly"
+            fi
+          fi
